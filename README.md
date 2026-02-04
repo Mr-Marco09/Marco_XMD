@@ -2,7 +2,7 @@
 > Un bot WhatsApp Multi-Device puissant avec interface de jumelage intégrée.
 
 [![WhatsApp](https://i.postimg.cc/3xJSspfc/freepik-a-professional-cybersecurity-logo-with-a-person-we-53896.jpg)](https://wa.me)
-[![Owner](https://i.postimg.cc/3xJSspfc/freepik-a-professional-cybersecurity-logo-with-a-person-we-53896.jpg)](https://wa.me)
+[![Owner](https://i.postimg.cc/2SCvWWR6/IMG-20260203-WA0377.jpg)](https://wa.me)
 
 ---
 
