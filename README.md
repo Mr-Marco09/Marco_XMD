@@ -1,8 +1,8 @@
 # 𝐌𝐚𝐫𝐜𝐨-𝐗𝐌𝐃 🚀
 > Un bot WhatsApp Multi-Device puissant avec interface de jumelage intégrée.
 
-[![WhatsApp](https://img.shields.io)](https://wa.me)
-[![Owner](https://img.shields.io)](https://wa.me)
+[![WhatsApp](https://i.postimg.cc/3xJSspfc/freepik-a-professional-cybersecurity-logo-with-a-person-we-53896.jpg)](https://wa.me)
+[![Owner](https://i.postimg.cc/3xJSspfc/freepik-a-professional-cybersecurity-logo-with-a-person-we-53896.jpg)](https://wa.me)
 
 ---
 
