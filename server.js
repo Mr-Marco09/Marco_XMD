@@ -1,14 +1,15 @@
-///////server.js////////
+/////// server.js (MULTI-SESSION CORRECTED) ////////
 
 const express = require("express");
 const path = require("path");
-const { default: makeWASocket, useMultiFileAuthState, Browsers } = require("@whiskeysockets/baileys");
+const { default: makeWASocket, useMultiFileAuthState, Browsers, makeCacheableSignalKeyStore } = require("@whiskeysockets/baileys");
 const pino = require("pino");
+const { handleEvents } = require("./events"); // Import nécessaire pour activer le bot
+
 const app = express();
 const PORT = process.env.PORT || 10000;
 
-// On exporte une fonction qui ne dépend pas d'une instance unique
-const startServer = () => {
+const startServer = (commands) => { // On passe 'commands' pour les plugins
     
     app.get('/', (req, res) => {
         res.sendFile(path.join(__dirname, 'index.html'));
@@ -18,46 +19,47 @@ const startServer = () => {
         const num = req.query.number; 
         if (!num) return res.status(400).json({ error: "Numéro requis" });
 
-        // 1. Créer un ID de session unique basé sur le numéro
-        const sessionId = `session_${num.replace(/\D/g, '')}`;
-        const sessionPath = path.join(__dirname, 'sessions', sessionId);
+        // 1. Nettoyage du numéro et création du dossier de session
+        const cleanNum = num.replace(/\D/g, '');
+        const sessionPath = path.join(__dirname, 'sessions', cleanNum);
 
         try {
-            // 2. Initialiser une authentification propre à ce numéro
+            // 2. Initialisation Auth
             const { state, saveCreds } = await useMultiFileAuthState(sessionPath);
             
-            const tempSocket = makeWASocket({
-                auth: state,
+            const marco = makeWASocket({
+                auth: {
+                    creds: state.creds,
+                    keys: makeCacheableSignalKeyStore(state.keys, pino({ level: "fatal" })),
+                },
                 logger: pino({ level: "fatal" }),
-                browser: Browsers.ubuntu("Chrome")
+                browser: Browsers.ubuntu("Chrome"),
+                printQRInTerminal: false
             });
 
-            // 3. Sauvegarder les clés dès qu'elles sont générées
-            tempSocket.ev.on('creds.update', saveCreds);
+            // 3. Liaison immédiate des événements (Important pour que le bot marche après le pairing)
+            handleEvents(marco, saveCreds, commands);
 
-            // 4. Demander le code (attendre un court instant que la socket s'initialise)
+            // 4. Demande du code après un petit délai de socket
             setTimeout(async () => {
                 try {
-                    const code = await tempSocket.requestPairingCode(num);
-                    res.status(200).json({ code: code });
-
-                    // 5. Surveiller la connexion pour activer les plugins une fois lié
-                    tempSocket.ev.on('connection.update', (update) => {
-                        const { connection } = update;
-                        if (connection === 'open') {
-                            console.log(`✅ Nouveau bot lié : ${num}`);
-                            // Ici, tu peux appeler handleEvents(tempSocket, ...) 
-                            // pour que ce nouveau bot réponde aux commandes
+                    if (!marco.authState.creds.registered) {
+                        const code = await marco.requestPairingCode(cleanNum);
+                        if (!res.headersSent) {
+                            res.status(200).json({ code: code });
                         }
-                    });
+                    } else {
+                        res.status(200).json({ code: "Déjà connecté" });
+                    }
                 } catch (pairErr) {
-                    res.status(500).json({ error: "Échec du pairing" });
+                    console.error("Pairing Error:", pairErr);
+                    if (!res.headersSent) res.status(500).json({ error: "Échec du pairing" });
                 }
-            }, 3000);
+            }, 5000); // 5 secondes pour être sûr que le socket est prêt
 
         } catch (err) {
             console.error("Erreur Serveur:", err);
-            res.status(500).json({ error: "Erreur système" });
+            if (!res.headersSent) res.status(500).json({ error: "Erreur système" });
         }
     });
 
