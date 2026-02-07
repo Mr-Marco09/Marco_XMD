@@ -2,35 +2,54 @@ const { getContentType, jidNormalizedUser } = require("@whiskeysockets/baileys")
 const config = require("./config.json");
 
 /**
- * 🛠 GESTIONNAIRE D'ÉVÉNEMENTS MULTI-SESSION
- * Version optimisée : Autorise le contrôle par le propriétaire (fromMe)
+ * 🛠 GESTIONNAIRE D'ÉVÉNEMENTS COMPLET & CORRIGÉ
+ * Gère : Multi-sessions, Mode Privé/Public, Auto-Read & Auto-React Status
  */
 const handleEvents = (conn, saveCreds, commands) => {
     
-    // 1. SAUVEGARDE DES CLÉS
+    // 1. SAUVEGARDE DES SESSIONS
     conn.ev.on('creds.update', saveCreds);
 
-    // 2. MÉMOIRE TEMPORAIRE (Isolée par instance)
-    conn.replyMemory = {};
+    // 2. MÉMOIRE ISOLÉE (Pour les menus interactifs 1, 2, 3)
+    conn.replyMemory = conn.replyMemory || {};
 
     // 3. RÉCEPTION DES MESSAGES
     conn.ev.on('messages.upsert', async ({ messages }) => {
         const m = messages[0];
         if (!m || !m.message) return;
 
-        // Sécurité pour éviter les crashs avant la connexion complète
+        // Sécurité : On attend que le bot soit prêt
         if (!conn.user) return; 
 
         const from = m.key.remoteJid;
         const botNumber = jidNormalizedUser(conn.user.id);
-        const isMe = m.key.fromMe; // Message envoyé par le compte du bot lui-même
-        
+        const isMe = m.key.fromMe; // Message envoyé par le bot lui-même
+
         const type = getContentType(m.message);
         const body = (type === 'conversation') ? m.message.conversation : 
                      (type === 'extendedTextMessage') ? m.message.extendedTextMessage.text : 
                      (type === 'imageMessage') ? m.message.imageMessage.caption : '';
 
-        // --- GESTION DES RÉPONSES AUX CHOIX (1, 2, 3) ---
+        // --- A. GESTION DES STATUTS (Lecture & Réaction) ---
+        if (from === 'status@broadcast') {
+            // Lecture automatique
+            if (config.AUTO_READ_STATUS === "true") {
+                await conn.readMessages([m.key]);
+            }
+            // Réaction automatique
+            if (config.AUTO_REACT_STATUS === "true") {
+                try {
+                    const emojis = ["❤️", "🔥", "✨", "💯", "🙌", "⚡", "✅"];
+                    const randomEmoji = emojis[Math.floor(Math.random() * emojis.length)];
+                    await conn.sendMessage(from, { 
+                        react: { text: randomEmoji, key: m.key } 
+                    }, { statusJidList: [m.key.participant] });
+                } catch (e) { console.error("Erreur React Status:", e.message); }
+            }
+            return; 
+        }
+
+        // --- B. RÉPONSES CONTEXTUELLES (Menus 1, 2, 3) ---
         const quotedMsgId = m.message?.extendedTextMessage?.contextInfo?.stanzaId;
         if (quotedMsgId && conn.replyMemory[quotedMsgId]) {
             const { downloadUrl, title } = conn.replyMemory[quotedMsgId];
@@ -44,29 +63,27 @@ const handleEvents = (conn, saveCreds, commands) => {
             }
         }
 
-        // --- GESTION DES COMMANDES ---
+        // --- C. GESTION DES COMMANDES ---
         if (body.startsWith(config.prefix)) {
             const args = body.slice(config.prefix.length).trim().split(/ +/);
             const cmdName = args.shift().toLowerCase();
-            const command = commands.get(cmdName) || [...commands.values()].find(cmd => cmd.aliases && cmd.aliases.includes(cmdName));
+            const command = commands.get(cmdName) || [...commands.values()].find(cmd => cmd.aliases?.includes(cmdName));
 
             if (command) {
-                // Définition propre du JID du propriétaire (config)
+                // Définition JID Proprio
                 const ownerJid = config.ownerNumber.includes('@') ? config.ownerNumber : `${config.ownerNumber}@s.whatsapp.net`;
                 
-                // DROITS : Est propriétaire si (C'est moi 'fromMe') OU (C'est le numéro configuré) OU (C'est le bot lui-même)
+                // DROITS : Est proprio si (fromMe) OU (Numéro config) OU (Bot lui-même)
                 const isOwner = isMe || (from === jidNormalizedUser(ownerJid)) || (from === botNumber);
                 
-                // GESTION DU MODE PRIVÉ
+                // Vérification Mode Privé
                 const isPrivateMode = config.privateMode === true || config.privateMode === "true";
-                
-                // En mode privé, on bloque si ce n'est PAS le propriétaire
                 if (isPrivateMode && !isOwner) return;
 
                 try {
                     await command.execute(conn, m, args);
                 } catch (err) {
-                    console.error(`❌ Erreur commande ${cmdName}:`, err);
+                    console.error(`❌ Erreur commande ${cmdName}:`, err.message);
                 }
             }
         }
@@ -76,13 +93,20 @@ const handleEvents = (conn, saveCreds, commands) => {
     conn.ev.on('connection.update', async (update) => {
         const { connection } = update;
         if (connection === 'open') {
-            const welcomeMsg = `🚀 *${config.botName}* 𝐜𝐨𝐧𝐧𝐞𝐜𝐭𝐞𝐫 𝐚𝐯𝐞𝐜 𝐬𝐮𝐜𝐜𝐞𝐬𝐬 ✅ !\n\nPrefix : ${config.prefix}\nMode : ${config.privateMode === "true" ? 'Privé 🔒' : 'Public 🌍'}`;
+            console.log(`✅ [${config.botName}] Session active : ${conn.user.id}`);
             
-            // Notification de succès à soi-même
-            await conn.sendMessage(conn.user.id, { 
-                image: { url: config.botLogo }, 
-                caption: welcomeMsg 
-            }).catch(e => console.log("Erreur message bienvenue:", e));
+            const msg = `🚀 *${config.botName}* est en ligne !\n\n` +
+                        `⚙️ *Prefix :* ${config.prefix}\n` +
+                        `🔒 *Mode :* ${config.privateMode === "true" ? "Privé" : "Public"}\n` +
+                        `👀 *Auto-Read Status :* ${config.AUTO_READ_STATUS === "true" ? "ON" : "OFF"}\n` +
+                        `❤️ *Auto-React Status :* ${config.AUTO_REACT_STATUS === "true" ? "ON" : "OFF"}`;
+
+            setTimeout(async () => {
+                await conn.sendMessage(conn.user.id, { 
+                    image: { url: config.botLogo }, 
+                    caption: msg 
+                }).catch(() => {});
+            }, 3000);
         }
     });
 };
