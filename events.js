@@ -3,28 +3,29 @@ const config = require("./config.json");
 
 /**
  * 🛠 GESTIONNAIRE D'ÉVÉNEMENTS MULTI-SESSION
- * Chaque instance de bot appelle cette fonction pour lier ses propres événements.
+ * Version optimisée : Autorise le contrôle par le propriétaire (fromMe)
  */
 const handleEvents = (conn, saveCreds, commands) => {
     
-    // 1. SAUVEGARDE DES CLÉS (Crucial pour rester connecté)
+    // 1. SAUVEGARDE DES CLÉS
     conn.ev.on('creds.update', saveCreds);
 
-    // 2. MÉMOIRE TEMPORAIRE (Spécifique à cette instance)
-    // Utilisé pour stocker les choix de téléchargement (Play/Video)
+    // 2. MÉMOIRE TEMPORAIRE (Isolée par instance)
     conn.replyMemory = {};
 
     // 3. RÉCEPTION DES MESSAGES
     conn.ev.on('messages.upsert', async ({ messages }) => {
         const m = messages[0];
         if (!m || !m.message) return;
-        if (m.key.fromMe) return; // Ne pas répondre à ses propres messages
+
+        // Sécurité pour éviter les crashs avant la connexion complète
+        if (!conn.user) return; 
 
         const from = m.key.remoteJid;
         const botNumber = jidNormalizedUser(conn.user.id);
-        const type = getContentType(m.message);
+        const isMe = m.key.fromMe; // Message envoyé par le compte du bot lui-même
         
-        // Extraction du texte
+        const type = getContentType(m.message);
         const body = (type === 'conversation') ? m.message.conversation : 
                      (type === 'extendedTextMessage') ? m.message.extendedTextMessage.text : 
                      (type === 'imageMessage') ? m.message.imageMessage.caption : '';
@@ -33,15 +34,11 @@ const handleEvents = (conn, saveCreds, commands) => {
         const quotedMsgId = m.message?.extendedTextMessage?.contextInfo?.stanzaId;
         if (quotedMsgId && conn.replyMemory[quotedMsgId]) {
             const { downloadUrl, title } = conn.replyMemory[quotedMsgId];
-            
             if (["1", "2", "3"].includes(body)) {
                 await conn.sendMessage(from, { react: { text: "⏳", key: m.key } });
-                
-                // Logique simplifiée (à adapter selon tes plugins de téléchargement)
                 if (body === "1") await conn.sendMessage(from, { audio: { url: downloadUrl }, mimetype: "audio/mpeg" }, { quoted: m });
                 if (body === "2") await conn.sendMessage(from, { document: { url: downloadUrl }, fileName: `${title}.mp3`, mimetype: "audio/mpeg" }, { quoted: m });
                 if (body === "3") await conn.sendMessage(from, { audio: { url: downloadUrl }, ptt: true }, { quoted: m });
-
                 await conn.sendMessage(from, { react: { text: "✅", key: m.key } });
                 return;
             }
@@ -51,36 +48,41 @@ const handleEvents = (conn, saveCreds, commands) => {
         if (body.startsWith(config.prefix)) {
             const args = body.slice(config.prefix.length).trim().split(/ +/);
             const cmdName = args.shift().toLowerCase();
-
-            // Recherche de la commande (par nom ou par alias)
             const command = commands.get(cmdName) || [...commands.values()].find(cmd => cmd.aliases && cmd.aliases.includes(cmdName));
 
             if (command) {
-                // Déterminer si l'expéditeur est le propriétaire de CETTE session précise
-                const isOwner = from.startsWith(botNumber.split('@')[0]) || from.startsWith(config.ownerNumber);
+                // Définition propre du JID du propriétaire (config)
+                const ownerJid = config.ownerNumber.includes('@') ? config.ownerNumber : `${config.ownerNumber}@s.whatsapp.net`;
                 
-                if (config.privateMode === "true" && !isOwner) return;
+                // DROITS : Est propriétaire si (C'est moi 'fromMe') OU (C'est le numéro configuré) OU (C'est le bot lui-même)
+                const isOwner = isMe || (from === jidNormalizedUser(ownerJid)) || (from === botNumber);
+                
+                // GESTION DU MODE PRIVÉ
+                const isPrivateMode = config.privateMode === true || config.privateMode === "true";
+                
+                // En mode privé, on bloque si ce n'est PAS le propriétaire
+                if (isPrivateMode && !isOwner) return;
 
                 try {
                     await command.execute(conn, m, args);
                 } catch (err) {
-                    console.error(`Erreur commande ${cmdName}:`, err);
+                    console.error(`❌ Erreur commande ${cmdName}:`, err);
                 }
             }
         }
     });
 
-    // 4. ÉVÉNEMENTS DE CONNEXION (LOGS)
-    conn.ev.on('connection.update', async ({ connection }) => {
+    // 4. ÉVÉNEMENTS DE CONNEXION
+    conn.ev.on('connection.update', async (update) => {
+        const { connection } = update;
         if (connection === 'open') {
-            const botNum = jidNormalizedUser(conn.user.id).split('@')[0];
-            const welcomeMsg = `🚀 *${config.botName}* est en ligne !\n\n👤 *Utilisateur :* ${botNum}\n⚙️ *Prefix :* ${config.prefix}`;
+            const welcomeMsg = `🚀 *${config.botName}* 𝐜𝐨𝐧𝐧𝐞𝐜𝐭𝐞𝐫 𝐚𝐯𝐞𝐜 𝐬𝐮𝐜𝐜𝐞𝐬𝐬 ✅ !\n\nPrefix : ${config.prefix}\nMode : ${config.privateMode === "true" ? 'Privé 🔒' : 'Public 🌍'}`;
             
-            // Envoie un message de confirmation au numéro qui vient de se connecter
+            // Notification de succès à soi-même
             await conn.sendMessage(conn.user.id, { 
                 image: { url: config.botLogo }, 
                 caption: welcomeMsg 
-            });
+            }).catch(e => console.log("Erreur message bienvenue:", e));
         }
     });
 };
