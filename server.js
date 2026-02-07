@@ -1,15 +1,16 @@
-/////// server.js (MULTI-SESSION CORRECTED) ////////
+/////// server.js (OPTIMISÉ POUR RENDER) ////////
 
 const express = require("express");
 const path = require("path");
-const { default: makeWASocket, useMultiFileAuthState, Browsers, makeCacheableSignalKeyStore } = require("@whiskeysockets/baileys");
+const { default: makeWASocket, useMultiFileAuthState, Browsers, makeCacheableSignalKeyStore, fetchLatestWaWebVersion } = require("@whiskeysockets/baileys");
 const pino = require("pino");
-const { handleEvents } = require("./events"); // Import nécessaire pour activer le bot
+const { handleEvents } = require("./events");
+const fs = require("fs-extra");
 
 const app = express();
 const PORT = process.env.PORT || 10000;
 
-const startServer = (commands) => { // On passe 'commands' pour les plugins
+const startServer = (commands) => {
     
     app.get('/', (req, res) => {
         res.sendFile(path.join(__dirname, 'index.html'));
@@ -19,52 +20,57 @@ const startServer = (commands) => { // On passe 'commands' pour les plugins
         const num = req.query.number; 
         if (!num) return res.status(400).json({ error: "Numéro requis" });
 
-        // 1. Nettoyage du numéro et création du dossier de session
         const cleanNum = num.replace(/\D/g, '');
         const sessionPath = path.join(__dirname, 'sessions', cleanNum);
 
+        // SÉCURITÉ : Créer le dossier s'il n'existe pas
+        if (!fs.existsSync(sessionPath)) {
+            fs.mkdirSync(sessionPath, { recursive: true });
+        }
+
+        console.log(`[PAIRING] Tentative pour le numéro : ${cleanNum}`);
+
         try {
-            // 2. Initialisation Auth
             const { state, saveCreds } = await useMultiFileAuthState(sessionPath);
+            const { version } = await fetchLatestWaWebVersion().catch(() => ({ version: [2, 3000, 1015901307] }));
             
             const marco = makeWASocket({
+                version,
                 auth: {
                     creds: state.creds,
                     keys: makeCacheableSignalKeyStore(state.keys, pino({ level: "fatal" })),
                 },
                 logger: pino({ level: "fatal" }),
-                browser: Browsers.ubuntu("Chrome"),
+                browser: Browsers.macOS("Desktop"), // macOS est parfois plus stable pour le pairing sur Render
                 printQRInTerminal: false
             });
 
-            // 3. Liaison immédiate des événements (Important pour que le bot marche après le pairing)
             handleEvents(marco, saveCreds, commands);
 
-            // 4. Demande du code après un petit délai de socket
+            // Augmentation du délai à 10s pour Render (Cloud plus lent)
             setTimeout(async () => {
                 try {
-                    if (!marco.authState.creds.registered) {
-                        const code = await marco.requestPairingCode(cleanNum);
-                        if (!res.headersSent) {
-                            res.status(200).json({ code: code });
-                        }
-                    } else {
-                        res.status(200).json({ code: "Déjà connecté" });
+                    console.log(`[PAIRING] Demande du code à WhatsApp...`);
+                    const code = await marco.requestPairingCode(cleanNum);
+                    
+                    if (!res.headersSent) {
+                        console.log(`[PAIRING] Code généré avec succès : ${code}`);
+                        res.status(200).json({ code: code });
                     }
                 } catch (pairErr) {
-                    console.error("Pairing Error:", pairErr);
-                    if (!res.headersSent) res.status(500).json({ error: "Échec du pairing" });
+                    console.error("[PAIRING ERROR]", pairErr.message);
+                    if (!res.headersSent) res.status(500).json({ error: "Échec du pairing. Réessayez." });
                 }
-            }, 5000); // 5 secondes pour être sûr que le socket est prêt
+            }, 10000); 
 
         } catch (err) {
-            console.error("Erreur Serveur:", err);
+            console.error("[SERVER ERROR]", err);
             if (!res.headersSent) res.status(500).json({ error: "Erreur système" });
         }
     });
 
     app.listen(PORT, '0.0.0.0', () => {
-        console.log(`🌍 Système Multi-Bot actif sur le port ${PORT}`);
+        console.log(`🌍 [${new Date().toLocaleString()}] Serveur Marco xmd en ligne sur le port ${PORT}`);
     });
 };
 
