@@ -5,5 +5,6 @@
   "prefix": ".",
   "botLogo": "https://i.postimg.cc/2SCvWWR6/IMG-20260203-WA0377.jpg",
   "AUTO_READ_STATUS": "true",
+  "AUTO_REACT_STATUS": "true",
   "privateMode": "false"
 }
