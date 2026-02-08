@@ -7,7 +7,7 @@ const fs = require("fs-extra");
 const path = require("path");
 const config = require("./config.json");
 const { startServer } = require("./server");
-const { handleEvents } = require("./events");
+const { handleEvents } = require("./events"); // <-- Importation unique ici
 
 const commands = new Map();
 const SESSIONS_PATH = path.join(__dirname, "sessions");
@@ -51,7 +51,7 @@ async function startBotInstance(sessionId) {
         }
     });
 
-    handleEvents(marco, saveCreds, commands);
+    handleEvents(marco, saveCreds, commands); // Utilisation de handleEvents
 
     marco.ev.on('connection.update', (update) => {
         const { connection, lastDisconnect } = update;
@@ -73,20 +73,20 @@ async function initSystem() {
     
     loadPlugins();
 
-    // On lance le serveur en passant la Map des commandes
+    // On lance le serveur en passant la Map des commandes et la fonction handleEvents
     if (!serverStarted) {
-        startServer(commands); 
+        startServer(commands, handleEvents); 
         serverStarted = true;
     }
 
-    // Scan et reconnexion automatique uniquement pour les sessions VALIDES (creds.json présent)
+    // Scan et reconnexion automatique uniquement pour les sessions VALIDES
     const existingSessions = fs.readdirSync(SESSIONS_PATH);
     for (const id of existingSessions) {
         const fullPath = path.join(SESSIONS_PATH, id);
         if (fs.statSync(fullPath).isDirectory() && fs.existsSync(path.join(fullPath, 'creds.json'))) {
             console.log(`⏳ Restauration : ${id}`);
             await startBotInstance(id);
-            await new Promise(resolve => setTimeout(resolve, 2000)); // Évite la surcharge Render
+            await new Promise(resolve => setTimeout(resolve, 2000));
         }
     }
 }
