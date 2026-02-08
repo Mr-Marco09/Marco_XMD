@@ -1,6 +1,6 @@
 const express = require("express");
 const path = require("path");
-// Imports Baileys spécifiques utilisés dans ce fichier
+// Imports Baileys spécifiques utilisés
 const { 
     default: makeWASocket, 
     useMultiFileAuthState, 
@@ -10,14 +10,17 @@ const {
 const pino = require("pino");
 const fs = require("fs-extra");
 
-const app = express(); // <-- Déclaration de 'app' accessible à toutes les routes
+// Déclaration de 'app' au niveau global pour éviter la ReferenceError
+const app = express(); 
 const PORT = process.env.PORT || 10000;
 
-// La fonction startServer prend maintenant 'handleEvents' en paramètre
+// La fonction startServer prend maintenant 'commands' et 'handleEvents' en paramètre
 const startServer = (commands, handleEvents) => {
     
+    // Route de base pour la page d'accueil
     app.get('/', (req, res) => {
-        res.sendFile(path.join(__dirname, 'index.html'));
+        // Assure-toi d'avoir un fichier index.html à la racine de ton projet
+        res.sendFile(path.join(__dirname, 'index.html')); 
     });
 
     // --- ROUTE PRINCIPALE POUR LE PAIRING CODE ---
@@ -25,14 +28,17 @@ const startServer = (commands, handleEvents) => {
         const num = req.query.number; 
         if (!num) return res.status(400).json({ error: "Numéro requis" });
 
+        // Format E.164 sans le '+'
         const cleanNum = num.replace(/\D/g, ''); 
         const sessionPath = path.join(__dirname, 'sessions', cleanNum);
 
+        // Nettoyage impératif pour forcer un nouveau code valide
         if (fs.existsSync(sessionPath)) fs.rmSync(sessionPath, { recursive: true, force: true });
         fs.mkdirSync(sessionPath, { recursive: true });
 
         try {
             const { state, saveCreds } = await useMultiFileAuthState(sessionPath);
+            // Ajout d'un fallback stable pour la version WA
             const { version } = await fetchLatestWaWebVersion().catch(() => ({ version: }));
             
             const marco = makeWASocket({
@@ -42,19 +48,23 @@ const startServer = (commands, handleEvents) => {
                     keys: makeCacheableSignalKeyStore(state.keys, pino({ level: "fatal" })),
                 },
                 logger: pino({ level: "fatal" }),
+                // Format browser fiable pour le pairing sur Render
                 browser: ["Ubuntu", "Chrome", "20.0.04"], 
                 printQRInTerminal: false
             });
 
             // Utilisation de handleEvents passé depuis index.js
+            // Note: handleEvents importe config.json, assure-toi qu'il existe sur Render
             handleEvents(marco, saveCreds, commands);
 
             // --- ÉVÉNEMENT CRUCIAL POUR DÉCLENCHER LE CODE ---
             marco.ev.on('connection.update', async (update) => {
                 const { connection, qr } = update;
 
+                // Attente de l'état "connecting" ou du flux QR avant de demander le code
                 if (connection === "connecting" || qr) {
                     try {
+                        // Délai pour laisser le socket se stabiliser
                         await new Promise(resolve => setTimeout(resolve, 3000));
                         
                         if (!marco.authState.creds.registered) {
@@ -79,6 +89,7 @@ const startServer = (commands, handleEvents) => {
     });
     // --- FIN ROUTE /PAIR ---
 
+    // Lancement du serveur Express
     app.listen(PORT, '0.0.0.0', () => {
         console.log(`🌍 [${new Date().toLocaleString()}] Serveur Marco xmd en ligne sur le port ${PORT}`);
     });
