@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Marco xmd - Pairing</title>
+    <style>
+        body { margin: 0; background: black; color: #0f0; font-family: 'Courier New', monospace; overflow: hidden; }
+        canvas { position: absolute; top: 0; left: 0; z-index: -1; }
+        .container { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; padding: 10px; }
+        .box { border: 2px solid #0f0; padding: 30px; background: rgba(0,0,0,0.9); text-align: center; box-shadow: 0 0 25px #0f0; border-radius: 10px; width: 90%; max-width: 400px; }
+        input { background: transparent; border: 1px solid #0f0; color: #0f0; padding: 12px; margin: 15px 0; width: 100%; text-align: center; outline: none; font-size: 1.1em; }
+        button { background: #0f0; color: black; border: none; padding: 12px 25px; cursor: pointer; font-weight: bold; width: 100%; transition: 0.3s; }
+        button:hover { background: #0a0; transform: scale(1.02); }
+        #codeDisplay { font-size: 2.2em; margin-top: 15px; letter-spacing: 8px; display: none; color: #fff; text-shadow: 0 0 10px #0f0; font-weight: bold; }
+        .loading { animation: blink 1s infinite; }
+        @keyframes blink { 50% { opacity: 0; } }
+    </style>
+</head>
+<body>
+    <canvas id="matrix"></canvas>
+    <div class="container">
+        <div class="box">
+            <h1 style="margin-top: 0;">𝐌𝐚𝐫𝐜𝐨 𝐱𝐦𝐝</h1>
+            <p id="statusText">Entrez votre numéro de téléphone avec l'indicatif (ex: 509...)</p>
+            
+            <input type="number" id="phone" placeholder="Ex: 50944001122" onkeypress="if(event.key === 'Enter') generatePairing()">
+            
+            <button id="genBtn" onclick="generatePairing()">GÉNÉRER LE CODE</button>
+            
+            <div id="codeDisplay"></div>
+            <button id="copyBtn" style="display:none; margin-top: 15px;" onclick="copyCode()">COPIER LE CODE</button>
+        </div>
+    </div>
+
+    <script>
+        // Effet Matrix Responsif
+        const canvas = document.getElementById('matrix');
+        const ctx = canvas.getContext('2d');
+
+        function resizeCanvas() {
+            canvas.height = window.innerHeight;
+            canvas.width = window.innerWidth;
+        }
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
+
+        const letters = "0123456789ABCDEFHIJKLMNOPQRSTUVWXYZ";
+        const fontSize = 16;
+        let columns = canvas.width / fontSize;
+        let drops = Array(Math.floor(columns)).fill(1);
+
+        function draw() {
+            ctx.fillStyle = "rgba(0, 0, 0, 0.05)";
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.fillStyle = "#0F0";
+            ctx.font = fontSize + "px arial";
+            drops.forEach((y, i) => {
+                const text = letters[Math.floor(Math.random() * letters.length)];
+                ctx.fillText(text, i * fontSize, y * fontSize);
+                if (y * fontSize > canvas.height && Math.random() > 0.975) drops[i] = 0;
+                drops[i]++;
+            });
+        }
+        setInterval(draw, 33);
+
+        // Logique de Pairing
+        async function generatePairing() {
+            const numInput = document.getElementById('phone');
+            const status = document.getElementById('statusText');
+            const btn = document.getElementById('genBtn');
+            const num = numInput.value.replace(/[^0-9]/g, '');
+
+            if(!num || num.length < 8) return alert("Veuillez entrer un numéro valide !");
+            
+            // État de chargement
+            btn.disabled = true;
+            btn.innerText = "CHARGEMENT...";
+            status.innerHTML = '<span class="loading">Génération du code de jumelage...</span>';
+            
+            try {
+                const res = await fetch(`/pair?number=${num}`);
+                const data = await res.json();
+                
+                if(data.code) {
+                    status.innerText = "VOTRE CODE EST PRÊT :";
+                    const display = document.getElementById('codeDisplay');
+                    display.innerText = data.code;
+                    display.style.display = "block";
+                    btn.style.display = "none";
+                    numInput.style.display = "none";
+                    document.getElementById('copyBtn').style.display = "block";
+                } else {
+                    throw new Error("Pas de code reçu");
+                }
+            } catch (err) {
+                alert("Erreur serveur. Vérifiez que le bot est bien allumé.");
+                status.innerText = "Échec de la génération.";
+                btn.disabled = false;
+                btn.innerText = "RÉESSAYER";
+            }
+        }
+
+        function copyCode() {
+            const code = document.getElementById('codeDisplay').innerText;
+            navigator.clipboard.writeText(code).then(() => {
+                alert("Code copié ! Collez-le dans l'onglet 'Appareils connectés' de WhatsApp.");
+            });
+        }
+    </script>
+</body>
+</html>
